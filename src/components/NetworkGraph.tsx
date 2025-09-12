@@ -1,7 +1,37 @@
 "use client";
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-// ... other imports remain the same
+import { 
+  Card, 
+  CardContent, 
+  CardHeader, 
+  CardTitle 
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { 
+  X, Upload, Download, Settings, RefreshCw, ZoomIn, ZoomOut, Filter, 
+  Eye, Network, Share2, Save, Layers, Minimize2, Maximize2, Info, 
+  Cpu, Database, Server, Link, Shuffle, Microscope, Route, Workflow, 
+  Zap, Radiation, Shield, Lock, Unlock, Webhook, BarChart, 
+  Layers3, Pyramid, Sigma, Hexagon, Braces, GitBranch, Orbit
+} from 'lucide-react';
+import * as d3 from 'd3';
+import * as XLSX from 'xlsx';
+import Plot from 'react-plotly.js';
+
+// Ensure Card components are properly imported
+import { 
+  Card as ShadcnCard, 
+  CardContent as ShadcnCardContent, 
+  CardHeader as ShadcnCardHeader, 
+  CardTitle as ShadcnCardTitle 
+} from "@/components/ui/card";
 
 interface NetworkSimulationConfig {
   simulationSpeed: number;
@@ -20,11 +50,13 @@ const NetworkGraph: React.FC = () => {
     attackSimulation: false
   });
 
-  // Rest of the component remains the same...
-
   return (
     <div className="relative w-full max-w-4xl mx-auto">
-      <Card className="p-6 shadow-lg">
+      <ShadcnCard className="p-6 shadow-lg">
+        <ShadcnCardHeader className="flex flex-row items-center justify-between">
+          <ShadcnCardTitle>Network Graph</ShadcnCardTitle>
+        </ShadcnCardHeader>
+
         {/* Simulation status display */}
         {simulationRunning && (
           <div className="bg-blue-50 p-4 rounded-lg mb-4 flex items-center justify-between">
@@ -44,7 +76,7 @@ const NetworkGraph: React.FC = () => {
         )}
 
         {/* Rest of the component */}
-      </Card>
+      </ShadcnCard>
     </div>
   );
 };
