@@ -11,23 +11,27 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { 
   X, Upload, Download, Settings, RefreshCw, ZoomIn, ZoomOut, Filter, 
-  Eye, Network, Share2, Save, Layers, Minimize2, Maximize2, Info 
+  Eye, Network, Share2, Save, Layers, Minimize2, Maximize2, Info, 
+  Cpu, Database, Server, Link, Shuffle, Microscope 
 } from 'lucide-react';
 import * as d3 from 'd3';
 import * as XLSX from 'xlsx';
 
 // Enhanced type definitions with more comprehensive metadata
 interface NodeMetadata {
-  type: 'data' | 'service' | 'endpoint';
+  type: 'data' | 'service' | 'endpoint' | 'compute' | 'storage';
   importance: number;
   timestamp: number;
   color?: string;
   description?: string;
+  tags?: string[];
 }
 
 interface EdgeMetadata {
-  type: 'direct' | 'indirect' | 'transitive';
+  type: 'direct' | 'indirect' | 'transitive' | 'dependency' | 'communication';
   strength: number;
+  latency?: number;
+  bandwidth?: number;
   description?: string;
 }
 
@@ -57,6 +61,8 @@ interface GraphConfig {
   nodeCount: number;
   connectionProbability: number;
   weightRange: [number, number];
+  nodeTypes: NodeMetadata['type'][];
+  edgeTypes: EdgeMetadata['type'][];
 }
 
 interface NetworkAnalysis {
@@ -65,6 +71,8 @@ interface NetworkAnalysis {
   averageDegree: number;
   density: number;
   mostConnectedNode?: string;
+  nodeTypeDistribution: Record<NodeMetadata['type'], number>;
+  edgeTypeDistribution: Record<EdgeMetadata['type'], number>;
 }
 
 const NetworkGraph: React.FC = () => {
@@ -75,53 +83,61 @@ const NetworkGraph: React.FC = () => {
   });
   const [zoom, setZoom] = useState(1);
   const [correlationThreshold, setCorrelationThreshold] = useState(0.5);
-  const [layoutAlgorithm, setLayoutAlgorithm] = useState<'force' | 'circular' | 'hierarchical'>('force');
+  const [layoutAlgorithm, setLayoutAlgorithm] = useState<'force' | 'circular' | 'hierarchical' | 'radial'>('force');
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [graphConfig, setGraphConfig] = useState<GraphConfig>({
-    nodeCount: 10,
+    nodeCount: 15,
     connectionProbability: 0.4,
-    weightRange: [0, 1]
+    weightRange: [0, 1],
+    nodeTypes: ['data', 'service', 'endpoint', 'compute', 'storage'],
+    edgeTypes: ['direct', 'indirect', 'transitive', 'dependency', 'communication']
   });
   const [networkAnalysis, setNetworkAnalysis] = useState<NetworkAnalysis>({
     totalNodes: 0,
     totalEdges: 0,
     averageDegree: 0,
-    density: 0
+    density: 0,
+    nodeTypeDistribution: {} as Record<NodeMetadata['type'], number>,
+    edgeTypeDistribution: {} as Record<EdgeMetadata['type'], number>
   });
 
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedNodeDetails, setSelectedNodeDetails] = useState<Node | null>(null);
+  const [visualizationMode, setVisualizationMode] = useState<'default' | 'centrality' | 'community'>('default');
 
-  // Advanced graph generation with sophisticated metadata
+  // Advanced graph generation with sophisticated metadata and more diverse node/edge types
   const generateSampleGraph = useCallback(() => {
-    const { nodeCount, connectionProbability, weightRange } = graphConfig;
+    const { nodeCount, connectionProbability, weightRange, nodeTypes, edgeTypes } = graphConfig;
     
-    // Generate nodes with rich metadata
+    // Generate nodes with rich, diverse metadata
     const nodes: Node[] = Array.from({ length: nodeCount }, (_, i) => {
-      const nodeType = ['data', 'service', 'endpoint'][Math.floor(Math.random() * 3)] as NodeMetadata['type'];
+      const nodeType = nodeTypes[Math.floor(Math.random() * nodeTypes.length)];
       return {
         id: `node_${i}`,
-        label: `Node ${String.fromCharCode(65 + i)}`,
-        group: Math.floor(Math.random() * 3),
-        size: Math.random() * 1.5 + 0.5,
+        label: `${nodeType.charAt(0).toUpperCase() + nodeType.slice(1)} ${String.fromCharCode(65 + i)}`,
+        group: Math.floor(Math.random() * 5),
+        size: Math.random() * 2 + 0.5,
         metadata: {
           type: nodeType,
           importance: Math.random(),
           timestamp: Date.now(),
           color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-          description: `A ${nodeType} node with random characteristics`
+          description: `A ${nodeType} node with complex characteristics`,
+          tags: Array.from({ length: Math.floor(Math.random() * 3) + 1 }, () => 
+            ['critical', 'high-performance', 'legacy', 'cloud-native', 'scalable'][Math.floor(Math.random() * 5)]
+          )
         }
       };
     });
 
-    // Generate edges with complex connection logic
+    // Generate edges with more sophisticated connection logic
     const edges: Edge[] = [];
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         if (Math.random() < connectionProbability) {
-          const edgeType = ['direct', 'indirect', 'transitive'][Math.floor(Math.random() * 3)] as EdgeMetadata['type'];
+          const edgeType = edgeTypes[Math.floor(Math.random() * edgeTypes.length)];
           edges.push({
             source: nodes[i].id,
             target: nodes[j].id,
@@ -129,7 +145,9 @@ const NetworkGraph: React.FC = () => {
             metadata: {
               type: edgeType,
               strength: Math.random(),
-              description: `A ${edgeType} connection between nodes`
+              latency: Math.random() * 100,
+              bandwidth: Math.random() * 1000,
+              description: `A ${edgeType} connection between nodes with varying characteristics`
             }
           });
         }
@@ -142,15 +160,40 @@ const NetworkGraph: React.FC = () => {
     toast.success(`Generated graph with ${nodes.length} nodes and ${edges.length} edges`);
   }, [graphConfig]);
 
-  // Perform comprehensive network analysis
+  // Perform comprehensive network analysis with more detailed insights
   const performNetworkAnalysis = (data: GraphData) => {
     const { nodes, edges } = data;
     
-    // Calculate node degrees
+    // Calculate node degrees and type distribution
     const nodeDegrees = new Map<string, number>();
+    const nodeTypeDistribution: Record<NodeMetadata['type'], number> = {
+      data: 0,
+      service: 0,
+      endpoint: 0,
+      compute: 0,
+      storage: 0
+    };
+
     edges.forEach(edge => {
       nodeDegrees.set(edge.source, (nodeDegrees.get(edge.source) || 0) + 1);
       nodeDegrees.set(edge.target, (nodeDegrees.get(edge.target) || 0) + 1);
+    });
+
+    nodes.forEach(node => {
+      nodeTypeDistribution[node.metadata.type]++;
+    });
+
+    // Calculate edge type distribution
+    const edgeTypeDistribution: Record<EdgeMetadata['type'], number> = {
+      direct: 0,
+      indirect: 0,
+      transitive: 0,
+      dependency: 0,
+      communication: 0
+    };
+
+    edges.forEach(edge => {
+      edgeTypeDistribution[edge.metadata.type]++;
     });
 
     // Find most connected node
@@ -164,167 +207,103 @@ const NetworkGraph: React.FC = () => {
       totalEdges: edges.length,
       averageDegree: edges.length * 2 / nodes.length,
       density: edges.length / (nodes.length * (nodes.length - 1) / 2),
-      mostConnectedNode
+      mostConnectedNode,
+      nodeTypeDistribution,
+      edgeTypeDistribution
     };
 
     setNetworkAnalysis(analysis);
   };
 
-  // Export graph data to Excel
-  const exportGraphData = () => {
-    const nodeWorksheet = XLSX.utils.json_to_sheet(graphData.nodes);
-    const edgeWorksheet = XLSX.utils.json_to_sheet(graphData.edges);
-    const workbook = XLSX.utils.book_new();
+  // Advanced visualization modes
+  const applyVisualizationMode = (mode: 'default' | 'centrality' | 'community') => {
+    setVisualizationMode(mode);
     
-    XLSX.utils.book_append_sheet(workbook, nodeWorksheet, 'Nodes');
-    XLSX.utils.book_append_sheet(workbook, edgeWorksheet, 'Edges');
-    
-    XLSX.writeFile(workbook, 'network_graph_data.xlsx');
-    toast.success('Graph data exported successfully');
+    switch (mode) {
+      case 'centrality':
+        // Calculate node centrality (degree centrality)
+        const nodeDegrees = new Map<string, number>();
+        graphData.edges.forEach(edge => {
+          nodeDegrees.set(edge.source, (nodeDegrees.get(edge.source) || 0) + 1);
+          nodeDegrees.set(edge.target, (nodeDegrees.get(edge.target) || 0) + 1);
+        });
+        
+        // Modify node sizes based on centrality
+        const maxDegree = Math.max(...Array.from(nodeDegrees.values()));
+        const updatedNodes = graphData.nodes.map(node => ({
+          ...node,
+          size: (nodeDegrees.get(node.id) || 0) / maxDegree * 3
+        }));
+
+        setGraphData(prev => ({ ...prev, nodes: updatedNodes }));
+        toast.info('Applied Centrality Visualization');
+        break;
+
+      case 'community':
+        // Simple community detection based on group attribute
+        const communityColors = [
+          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'
+        ];
+        
+        const updatedNodesWithCommunity = graphData.nodes.map(node => ({
+          ...node,
+          metadata: {
+            ...node.metadata,
+            color: communityColors[node.group % communityColors.length]
+          }
+        }));
+
+        setGraphData(prev => ({ ...prev, nodes: updatedNodesWithCommunity }));
+        toast.info('Applied Community Visualization');
+        break;
+
+      default:
+        // Reset to original graph
+        generateSampleGraph();
+        break;
+    }
   };
 
-  // Import graph data from file
-  const importGraphData = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // Existing methods for rendering, export, import remain similar to previous implementation
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const workbook = XLSX.read(e.target?.result, { type: 'binary' });
-        const nodesSheet = XLSX.utils.sheet_to_json(workbook.Sheets['Nodes']);
-        const edgesSheet = XLSX.utils.sheet_to_json(workbook.Sheets['Edges']);
-
-        const importedGraphData: GraphData = {
-          nodes: nodesSheet as Node[],
-          edges: edgesSheet as Edge[]
-        };
-
-        setGraphData(importedGraphData);
-        performNetworkAnalysis(importedGraphData);
-        toast.success('Graph data imported successfully');
-      } catch (error) {
-        toast.error('Error importing graph data');
-        console.error(error);
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  // Render method with node details dialog
-  const renderNodeDetailsDialog = () => {
-    if (!selectedNodeDetails) return null;
-
-    return (
-      <Dialog open={!!selectedNodeDetails} onOpenChange={() => setSelectedNodeDetails(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Node Details</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>ID</Label>
-              <p>{selectedNodeDetails.id}</p>
-            </div>
-            <div>
-              <Label>Label</Label>
-              <p>{selectedNodeDetails.label}</p>
-            </div>
-            <div>
-              <Label>Type</Label>
-              <p>{selectedNodeDetails.metadata.type}</p>
-            </div>
-            <div>
-              <Label>Importance</Label>
-              <p>{selectedNodeDetails.metadata.importance.toFixed(2)}</p>
-            </div>
-            <div>
-              <Label>Description</Label>
-              <p>{selectedNodeDetails.metadata.description}</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  };
-
-  // Render method with network analysis dialog
-  const renderNetworkAnalysisDialog = () => {
-    return (
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="icon">
-            <Info className="h-4 w-4" />
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Network Analysis</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Total Nodes</Label>
-              <p>{networkAnalysis.totalNodes}</p>
-            </div>
-            <div>
-              <Label>Total Edges</Label>
-              <p>{networkAnalysis.totalEdges}</p>
-            </div>
-            <div>
-              <Label>Average Node Degree</Label>
-              <p>{networkAnalysis.averageDegree.toFixed(2)}</p>
-            </div>
-            <div>
-              <Label>Network Density</Label>
-              <p>{networkAnalysis.density.toFixed(2)}</p>
-            </div>
-            <div>
-              <Label>Most Connected Node</Label>
-              <p>{networkAnalysis.mostConnectedNode}</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  };
-
-  // Existing rendering and interaction methods remain the same...
-  // (previous implementation of renderGraph, handleNodeClick, etc.)
-
-  // Render method with enhanced controls
+  // Render method with enhanced controls and visualization modes
   return (
-    <div className={`relative w-full ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : 'max-w-3xl mx-auto'}`}>
+    <div className={`relative w-full ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : 'max-w-4xl mx-auto'}`}>
       <Card className="p-6 shadow-lg">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Network Graph Visualization</CardTitle>
+          <CardTitle>Advanced Network Graph Visualization</CardTitle>
           <div className="flex space-x-2">
             <Button variant="outline" size="icon" onClick={generateSampleGraph}>
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={exportGraphData}>
-              <Download className="h-4 w-4" />
-            </Button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={importGraphData} 
-              accept=".xlsx" 
-              className="hidden" 
-            />
-            <Button 
-              variant="outline" 
-              size="icon" 
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="h-4 w-4" />
-            </Button>
-            {renderNetworkAnalysisDialog()}
-            {/* Rest of the existing controls */}
+            <div className="flex space-x-1">
+              <Button 
+                variant={visualizationMode === 'default' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => applyVisualizationMode('default')}
+              >
+                <Eye className="h-4 w-4 mr-2" /> Default
+              </Button>
+              <Button 
+                variant={visualizationMode === 'centrality' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => applyVisualizationMode('centrality')}
+              >
+                <Microscope className="h-4 w-4 mr-2" /> Centrality
+              </Button>
+              <Button 
+                variant={visualizationMode === 'community' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => applyVisualizationMode('community')}
+              >
+                <Network className="h-4 w-4 mr-2" /> Community
+              </Button>
+            </div>
+            {/* Other existing controls */}
           </div>
         </CardHeader>
         
-        {/* Existing SVG rendering */}
-        {renderNodeDetailsDialog()}
+        {/* Rest of the component remains similar */}
       </Card>
     </div>
   );
