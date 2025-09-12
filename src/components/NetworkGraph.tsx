@@ -5,15 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { X, Upload, Download, Settings, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, Upload, Download, Settings, RefreshCw, ZoomIn, ZoomOut, Filter, Eye } from 'lucide-react';
 import * as d3 from 'd3';
 
-// Define interfaces for graph data with D3 SimulationNodeDatum
+// Enhanced type definitions
 interface Node extends d3.SimulationNodeDatum {
   id: string;
   label: string;
   group: number;
+  size: number;
+  x?: number;
+  y?: number;
 }
 
 interface Edge extends d3.SimulationLinkDatum<Node> {
@@ -28,16 +32,46 @@ interface GraphData {
 }
 
 const NetworkGraph: React.FC = () => {
-  // Initialize state with proper typing
+  // State management
   const [graphData, setGraphData] = useState<GraphData>({
     nodes: [],
     edges: []
   });
-  const [filteredEdges, setFilteredEdges] = useState<Edge[]>([]);
   const [zoom, setZoom] = useState(1);
+  const [correlationThreshold, setCorrelationThreshold] = useState(0.5);
+  const [layoutAlgorithm, setLayoutAlgorithm] = useState<'force' | 'circular'>('force');
+  const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
+
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Render graph with proper type annotations
+  // Generate sample graph data
+  const generateSampleGraph = useCallback(() => {
+    const nodeCount = Math.floor(Math.random() * 10) + 5; // 5-15 nodes
+    const nodes: Node[] = Array.from({ length: nodeCount }, (_, i) => ({
+      id: `node_${i}`,
+      label: `Node ${String.fromCharCode(65 + i)}`,
+      group: Math.floor(Math.random() * 3),
+      size: Math.random() * 1.5 + 0.5
+    }));
+
+    const edges: Edge[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (Math.random() < 0.4) { // 40% chance of connection
+          edges.push({
+            source: nodes[i].id,
+            target: nodes[j].id,
+            weight: Math.random()
+          });
+        }
+      }
+    }
+
+    setGraphData({ nodes, edges });
+    toast.success(`Generated graph with ${nodes.length} nodes and ${edges.length} edges`);
+  }, []);
+
+  // Advanced graph rendering
   const renderGraph = useCallback(() => {
     if (!graphData.nodes.length || !svgRef.current) return;
 
@@ -47,11 +81,16 @@ const NetworkGraph: React.FC = () => {
     const width = 600;
     const height = 400;
 
-    // Create force simulation with typed nodes and links
-    const simulation = d3.forceSimulation<Node, Edge>(graphData.nodes)
-      .force("link", d3.forceLink<Node, Edge>(graphData.edges).id(d => d.id))
-      .force("charge", d3.forceManyBody().strength(-100))
-      .force("center", d3.forceCenter(width / 2, height / 2));
+    // Filter edges based on correlation threshold
+    const filteredEdges = graphData.edges.filter(edge => edge.weight >= correlationThreshold);
+
+    // Layout selection
+    const simulation = layoutAlgorithm === 'force'
+      ? d3.forceSimulation<Node, Edge>(graphData.nodes)
+          .force("link", d3.forceLink<Node, Edge>(filteredEdges).id(d => d.id))
+          .force("charge", d3.forceManyBody().strength(-100))
+          .force("center", d3.forceCenter(width / 2, height / 2))
+      : createCircularLayout(graphData.nodes, width, height);
 
     // Create links
     const links = svg.append("g")
@@ -60,16 +99,18 @@ const NetworkGraph: React.FC = () => {
       .enter().append("line")
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
-      .attr("stroke-width", d => d.weight * 5);
+      .attr("stroke-width", d => Math.sqrt(d.weight) * 5);
 
-    // Create nodes
+    // Create nodes with interactive features
     const nodes = svg.append("g")
       .selectAll("circle")
       .data(graphData.nodes)
       .enter().append("circle")
-      .attr("r", 10)
+      .attr("r", d => Math.max(5, d.size * 10))
       .attr("fill", d => `hsl(${d.group * 60}, 70%, 50%)`)
-      .call(d3.drag() as any);
+      .attr("opacity", d => selectedNodes.length === 0 || selectedNodes.includes(d.id) ? 1 : 0.3)
+      .call(d3.drag() as any)
+      .on("click", (event, d) => handleNodeClick(d));
 
     // Add labels
     const labels = svg.append("g")
@@ -79,7 +120,8 @@ const NetworkGraph: React.FC = () => {
       .text(d => d.label)
       .attr("font-size", 10)
       .attr("dx", 12)
-      .attr("dy", 4);
+      .attr("dy", 4)
+      .attr("opacity", d => selectedNodes.length === 0 || selectedNodes.includes(d.id) ? 1 : 0.3);
 
     // Update positions on each tick of simulation
     simulation.on("tick", () => {
@@ -97,21 +139,99 @@ const NetworkGraph: React.FC = () => {
         .attr("x", (d: any) => d.x)
         .attr("y", (d: any) => d.y);
     });
-  }, [graphData, filteredEdges]);
+  }, [graphData, correlationThreshold, layoutAlgorithm, selectedNodes]);
 
-  // Zoom functionality
+  // Circular layout algorithm
+  const createCircularLayout = (nodes: Node[], width: number, height: number) => {
+    const radius = Math.min(width, height) / 2 - 50;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    nodes.forEach((node, index) => {
+      const angle = (index / nodes.length) * 2 * Math.PI;
+      node.x = centerX + radius * Math.cos(angle);
+      node.y = centerY + radius * Math.sin(angle);
+    });
+
+    return d3.forceSimulation(nodes);
+  };
+
+  // Node click handler
+  const handleNodeClick = (node: Node) => {
+    setSelectedNodes(prev => 
+      prev.includes(node.id) 
+        ? prev.filter(id => id !== node.id)
+        : [...prev, node.id]
+    );
+  };
+
+  // Zoom and layout controls
   const handleZoom = useCallback((direction: 'in' | 'out') => {
     const newZoom = direction === 'in' ? zoom * 1.2 : zoom / 1.2;
     setZoom(Math.max(0.5, Math.min(newZoom, 3)));
     toast.info(`Zoom: ${(newZoom * 100).toFixed(0)}%`);
   }, [zoom]);
 
-  // Render method
+  // Trigger graph generation on component mount
+  useEffect(() => {
+    generateSampleGraph();
+  }, []);
+
+  // Trigger re-render when graph data changes
+  useEffect(() => {
+    renderGraph();
+  }, [graphData, correlationThreshold, layoutAlgorithm, selectedNodes]);
+
+  // Render method with enhanced controls
   return (
     <div className="relative w-full max-w-3xl mx-auto">
       <Card className="p-6 shadow-lg">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Network Graph Visualization</CardTitle>
           <div className="flex space-x-2">
+            <Button variant="outline" size="icon" onClick={generateSampleGraph}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Graph Configuration</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Correlation Threshold</Label>
+                    <Slider 
+                      value={[correlationThreshold * 100]} 
+                      onValueChange={(val) => setCorrelationThreshold(val[0] / 100)}
+                      max={100}
+                      step={1}
+                    />
+                  </div>
+                  <div>
+                    <Label>Layout Algorithm</Label>
+                    <div className="flex space-x-2">
+                      <Button 
+                        variant={layoutAlgorithm === 'force' ? 'default' : 'outline'}
+                        onClick={() => setLayoutAlgorithm('force')}
+                      >
+                        Force-Directed
+                      </Button>
+                      <Button 
+                        variant={layoutAlgorithm === 'circular' ? 'default' : 'outline'}
+                        onClick={() => setLayoutAlgorithm('circular')}
+                      >
+                        Circular
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Button 
               variant="outline" 
               size="icon" 
