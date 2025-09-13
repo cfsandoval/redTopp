@@ -4,6 +4,9 @@ export interface Node {
   x: number;
   y: number;
   type?: string;
+  group?: string;
+  influence?: number;
+  dependence?: number;
 }
 
 export interface Link {
@@ -23,8 +26,13 @@ export interface NetworkGraphProps {
   config?: NetworkSimulationConfig;
 }
 
-// New interface for adjacency matrix
 export interface AdjacencyMatrix {
   matrix: number[][];
   nodeNames: string[];
+}
+
+export interface NodeGroup {
+  id: string;
+  name: string;
+  color: string;
 }
