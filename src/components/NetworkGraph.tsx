@@ -1,5 +1,12 @@
-// Add explicit export default
-export default function NetworkGraph() {
-  // Existing component implementation remains the same
-  // (Keep the entire previous implementation)
-}
+import React from 'react';
+
+const NetworkGraph: React.FC = () => {
+  // Existing implementation remains the same
+  return (
+    <div>
+      {/* Existing render method */}
+    </div>
+  );
+};
+
+export default NetworkGraph;
