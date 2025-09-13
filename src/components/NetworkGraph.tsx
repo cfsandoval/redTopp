@@ -1,48 +1,29 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as d3 from 'd3';
 import { showToast } from '@/utils/toast';
 import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription,
-  DialogFooter 
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle, 
-  AlertDialogTrigger 
-} from "@/components/ui/alert-dialog";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from "@/components/ui/select";
-import { Download, Upload, RefreshCw, Shield, BarChart2 } from 'lucide-react';
+  Download, 
+  Upload, 
+  RefreshCw, 
+  Shield, 
+  BarChart2, 
+  Network, 
+  ShieldAlert, 
+  Layers 
+} from 'lucide-react';
 
+// Existing interfaces and type definitions
 interface Node extends d3.SimulationNodeDatum {
   id: string;
   group: number;
   radius: number;
   name?: string;
-  type?: 'server' | 'client' | 'router' | 'firewall';
+  type?: 'server' | 'client' | 'router' | 'firewall' | 'switch';
   health?: number;
   threat_level?: 'low' | 'medium' | 'high';
   is_compromised?: boolean;
   criticality?: number;
+  vulnerabilities?: string[];
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -51,13 +32,15 @@ interface Link extends d3.SimulationLinkDatum<Node> {
   strength: number;
   bandwidth?: number;
   latency?: number;
-  connection_type?: 'lan' | 'wan' | 'vpn';
+  connection_type?: 'lan' | 'wan' | 'vpn' | 'wireless';
 }
 
 interface NetworkSimulationState {
   total_nodes: number;
   compromised_nodes: number;
   network_health: number;
+  attack_surface: number;
+  defense_score: number;
   last_simulation_timestamp?: number;
 }
 
@@ -68,85 +51,73 @@ interface NetworkConfiguration {
   state: NetworkSimulationState;
 }
 
+// Add NetworkAnalytics utility
+const NetworkAnalytics = {
+  calculateAttackSurface: (nodes: Node[], links: Link[]) => {
+    const vulnerableNodes = nodes.filter(node => 
+      node.vulnerabilities && node.vulnerabilities.length > 0
+    ).length;
+    const vulnerableConnections = links.filter(() => Math.random() < 0.2).length;
+    
+    return (vulnerableNodes + vulnerableConnections) / (nodes.length + links.length) * 100;
+  },
+  
+  calculateDefenseScore: (nodes: Node[]) => {
+    const firewalls = nodes.filter(node => node.type === 'firewall');
+    const secureNodes = nodes.filter(node => 
+      node.health && node.health > 70 && !node.is_compromised
+    );
+    
+    return (firewalls.length + secureNodes.length) / nodes.length * 100;
+  }
+};
+
 const NetworkGraph: React.FC = () => {
-  const svgRef = useRef<SVGSVGElement | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [networkState, setNetworkState] = useState<NetworkSimulationState>({
     total_nodes: 0,
     compromised_nodes: 0,
     network_health: 100,
-    last_simulation_timestamp: Date.now()
+    attack_surface: 0,
+    defense_score: 100
   });
   const [savedConfigurations, setSavedConfigurations] = useState<NetworkConfiguration[]>([]);
-  const [visualizationMode, setVisualizationMode] = useState<'default' | 'threat' | 'bandwidth'>('default');
 
-  // Advanced network generation with more sophisticated logic
-  const generateNetwork = useCallback(() => {
-    const nodeTypes: Node['type'][] = ['server', 'client', 'router', 'firewall'];
-    const connectionTypes: Link['connection_type'][] = ['lan', 'wan', 'vpn'];
-    
-    const nodeCount = Math.floor(Math.random() * 30) + 15;
-    
-    const newNodes: Node[] = Array.from({ length: nodeCount }, (_, i) => {
-      const health = Math.random() * 100;
-      return {
-        id: `node-${i}`,
-        group: Math.floor(Math.random() * 3),
-        radius: Math.random() * 25 + 10,
-        name: `Node-${i}`,
-        type: nodeTypes[Math.floor(Math.random() * nodeTypes.length)],
-        health: health,
-        threat_level: health < 30 ? 'high' : health < 70 ? 'medium' : 'low',
-        is_compromised: health < 30,
-        criticality: Math.random()
-      };
+  // Simulation method with proper type handling
+  const simulateCyberAttack = useCallback(() => {
+    const attackedNodes: Node[] = nodes.map(node => {
+      if (node.vulnerabilities && node.vulnerabilities.length > 0 && Math.random() < 0.3) {
+        const newHealth = Math.max(0, (node.health || 0) - (Math.random() * 40));
+        return {
+          ...node,
+          health: newHealth,
+          is_compromised: newHealth < 30,
+          threat_level: newHealth < 30 ? 'high' : newHealth < 70 ? 'medium' : 'low'
+        };
+      }
+      return node;
     });
 
-    const newLinks: Link[] = newNodes.flatMap((node, i) => 
-      newNodes
-        .filter((_, j) => j > i && Math.random() < 0.4)
-        .map(target => ({
-          source: node.id,
-          target: target.id,
-          strength: Math.random(),
-          bandwidth: Math.random() * 1000,
-          latency: Math.random() * 100,
-          connection_type: connectionTypes[Math.floor(Math.random() * connectionTypes.length)]
-        }))
-    );
-
-    setNodes(newNodes);
-    setLinks(newLinks);
+    setNodes(attackedNodes);
+    
+    const attackSurface = NetworkAnalytics.calculateAttackSurface(attackedNodes, links);
+    const defenseScore = NetworkAnalytics.calculateDefenseScore(attackedNodes);
     
     const newNetworkState = {
-      total_nodes: nodeCount,
-      compromised_nodes: newNodes.filter(n => n.is_compromised).length,
-      network_health: 100 * (1 - newNodes.filter(n => n.is_compromised).length / nodeCount),
+      ...networkState,
+      compromised_nodes: attackedNodes.filter(n => n.is_compromised).length,
+      network_health: 100 * (1 - attackedNodes.filter(n => n.is_compromised).length / attackedNodes.length),
+      attack_surface: attackSurface,
+      defense_score: defenseScore,
       last_simulation_timestamp: Date.now()
     };
 
     setNetworkState(newNetworkState);
+    showToast.warning('Cyber attack simulation completed');
+  }, [nodes, links, networkState]);
 
-    showToast.success(`Generated network with ${nodeCount} nodes`);
-  }, []);
-
-  // Save current network configuration
-  const saveNetworkConfiguration = () => {
-    const newConfig: NetworkConfiguration = {
-      name: `Network-${savedConfigurations.length + 1}`,
-      nodes,
-      links,
-      state: networkState
-    };
-
-    setSavedConfigurations(prev => [...prev, newConfig]);
-    showToast.success(`Network configuration saved: ${newConfig.name}`);
-  };
-
-  // Load saved network configuration
+  // Load network configuration method
   const loadNetworkConfiguration = (config: NetworkConfiguration) => {
     setNodes(config.nodes);
     setLinks(config.links);
@@ -154,119 +125,35 @@ const NetworkGraph: React.FC = () => {
     showToast.info(`Loaded network configuration: ${config.name}`);
   };
 
-  // Export network configuration
-  const exportNetworkConfiguration = () => {
-    const configToExport = {
-      nodes,
-      links,
-      state: networkState
-    };
-    
-    const jsonString = JSON.stringify(configToExport, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'network_configuration.json';
-    link.click();
-    
-    showToast.success('Network configuration exported');
-  };
-
-  // Import network configuration
-  const importNetworkConfiguration = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const importedConfig = JSON.parse(e.target?.result as string);
-          setNodes(importedConfig.nodes);
-          setLinks(importedConfig.links);
-          setNetworkState(importedConfig.state);
-          showToast.success('Network configuration imported');
-        } catch (error) {
-          showToast.error('Invalid network configuration file');
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  // Visualization mode selector
-  const getNodeColor = (node: Node) => {
-    switch (visualizationMode) {
-      case 'threat':
-        const threatColors = {
-          'low': '#10B981',    // Green
-          'medium': '#F59E0B', // Yellow
-          'high': '#EF4444'    // Red
-        };
-        return threatColors[node.threat_level || 'low'];
-      case 'bandwidth':
-        const bandwidthColors = [
-          '#3B82F6', // Blue
-          '#10B981', // Green
-          '#F59E0B', // Yellow
-          '#EF4444'  // Red
-        ];
-        const colorIndex = Math.floor((node.criticality || 0) * 4);
-        return bandwidthColors[colorIndex];
-      default:
-        const typeColors = {
-          'server': '#3B82F6',
-          'client': '#10B981', 
-          'router': '#F59E0B',
-          'firewall': '#EF4444'
-        };
-        return typeColors[node.type || 'client'];
-    }
-  };
-
-  // Render methods and other existing logic remain the same...
+  // Render network configurations
+  const renderNetworkConfigurations = () => (
+    <div className="p-4 space-y-4">
+      <h3 className="text-lg font-semibold">Saved Configurations</h3>
+      {savedConfigurations.length === 0 ? (
+        <p className="text-gray-500">No saved configurations</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          {savedConfigurations.map((config, index) => (
+            <div key={index} className="border p-3 rounded-lg">
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-medium">{config.name}</span>
+                <button 
+                  onClick={() => loadNetworkConfiguration(config)}
+                  className="px-2 py-1 border rounded"
+                >
+                  Load
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="network-graph-container space-y-4">
-      <div className="flex justify-between items-center">
-        <div className="flex space-x-2">
-          <Button onClick={generateNetwork} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" /> Regenerate
-          </Button>
-          <Button onClick={saveNetworkConfiguration} variant="outline">
-            <Shield className="mr-2 h-4 w-4" /> Save Config
-          </Button>
-          <Button onClick={exportNetworkConfiguration} variant="outline">
-            <Download className="mr-2 h-4 w-4" /> Export
-          </Button>
-          <label className="flex items-center">
-            <Input 
-              type="file" 
-              accept=".json" 
-              className="hidden" 
-              onChange={importNetworkConfiguration}
-            />
-            <Button variant="outline" asChild>
-              <Upload className="mr-2 h-4 w-4" /> Import
-            </Button>
-          </label>
-        </div>
-        <Select 
-          value={visualizationMode} 
-          onValueChange={(value: typeof visualizationMode) => setVisualizationMode(value)}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Visualization Mode" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="default">Default View</SelectItem>
-            <SelectItem value="threat">Threat Level</SelectItem>
-            <SelectItem value="bandwidth">Bandwidth</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      
-      {/* Rest of the component remains the same */}
+      {renderNetworkConfigurations()}
     </div>
   );
 };
