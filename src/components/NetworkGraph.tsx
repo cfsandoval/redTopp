@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as d3 from 'd3';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +17,16 @@ import { Node, Link, NetworkSimulationConfig, NetworkGraphProps, AdjacencyMatrix
 import { Pencil, Check, X, PlusCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+const GROUP_COLORS = {
+  server: '#36A2EB',
+  workstation: '#FF6384',
+  router: '#4BC0C0'
+};
+
 const DEFAULT_CONFIG: NetworkSimulationConfig = {
   width: 800,
-  height: 600,
-  nodeRadius: 40
+  height: 500,
+  nodeRadius: 30
 };
 
 const NetworkGraph: React.FC<NetworkGraphProps> = ({ 
@@ -28,12 +34,13 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   links: initialLinks = [], 
   config = DEFAULT_CONFIG 
 }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
   const [nodes, setNodes] = useState<Node[]>(initialNodes.length > 0 ? initialNodes : [
     { id: '1', name: 'Web Server', x: 200, y: 150, type: 'server' },
     { id: '2', name: 'Database', x: 600, y: 150, type: 'server' },
-    { id: '3', name: 'Router', x: 400, y: 400, type: 'router' },
-    { id: '4', name: 'Client 1', x: 100, y: 300, type: 'workstation' },
-    { id: '5', name: 'Client 2', x: 700, y: 300, type: 'workstation' }
+    { id: '3', name: 'Router', x: 400, y: 250, type: 'router' },
+    { id: '4', name: 'Client 1', x: 200, y: 350, type: 'workstation' },
+    { id: '5', name: 'Client 2', x: 600, y: 350, type: 'workstation' }
   ]); 
   const [links, setLinks] = useState<Link[]>(initialLinks.length > 0 ? initialLinks : [
     { source: '1', target: '3' },
@@ -43,63 +50,74 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     { source: '3', target: '4' },
     { source: '3', target: '5' }
   ]);
-  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('matrix');
+  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('graph');
   const [newNodeName, setNewNodeName] = useState<string>('');
+  const [newNodeType, setNewNodeType] = useState<string>('workstation');
 
-  // Generar Matriz de Adyacencia
-  const generateAdjacencyMatrix = (): AdjacencyMatrix => {
-    const nodeNames = nodes.map(node => node.name);
-    const matrix = Array(nodes.length).fill(null).map(() => 
-      Array(nodes.length).fill(0)
-    );
+  useEffect(() => {
+    if (!svgRef.current) return;
 
-    links.forEach(link => {
-      const sourceIndex = nodes.findIndex(node => node.id === link.source);
-      const targetIndex = nodes.findIndex(node => node.id === link.target);
-      
-      if (sourceIndex !== -1 && targetIndex !== -1) {
-        matrix[sourceIndex][targetIndex] = 1;
-      }
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove(); // Clear previous rendering
+
+    // Create a simulation to position nodes
+    const simulation = d3.forceSimulation(nodes as any)
+      .force("link", d3.forceLink(links).id((d: any) => d.id))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(DEFAULT_CONFIG.width / 2, DEFAULT_CONFIG.height / 2));
+
+    // Draw links
+    const linkElements = svg.append("g")
+      .selectAll("line")
+      .data(links)
+      .enter()
+      .append("line")
+      .attr("stroke", "#999")
+      .attr("stroke-opacity", 0.6)
+      .attr("stroke-width", 2);
+
+    // Draw nodes
+    const nodeElements = svg.append("g")
+      .selectAll("g")
+      .data(nodes)
+      .enter()
+      .append("g")
+      .call(d3.drag<SVGGElement, Node>()
+        .on("drag", (event, d) => {
+          d.x = event.x;
+          d.y = event.y;
+          simulation.restart();
+        })
+      );
+
+    // Node circles
+    nodeElements.append("circle")
+      .attr("r", DEFAULT_CONFIG.nodeRadius)
+      .attr("fill", (d: any) => GROUP_COLORS[d.type as keyof typeof GROUP_COLORS] || '#666')
+      .attr("stroke", "#333")
+      .attr("stroke-width", 2);
+
+    // Node labels
+    nodeElements.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", ".35em")
+      .attr("fill", "white")
+      .attr("font-weight", "bold")
+      .text((d: any) => d.name);
+
+    // Update positions on each tick of the simulation
+    simulation.on("tick", () => {
+      linkElements
+        .attr("x1", (d: any) => d.source.x)
+        .attr("y1", (d: any) => d.source.y)
+        .attr("x2", (d: any) => d.target.x)
+        .attr("y2", (d: any) => d.target.y);
+
+      nodeElements
+        .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
+  }, [nodes, links]);
 
-    return { matrix, nodeNames };
-  };
-
-  // Manejar clic en celda de matriz
-  const handleMatrixCellClick = (rowIndex: number, colIndex: number) => {
-    // Evitar autoenlace
-    if (rowIndex === colIndex) {
-      showToast.error('Cannot create self-link');
-      return;
-    }
-
-    const sourceNode = nodes[rowIndex];
-    const targetNode = nodes[colIndex];
-
-    // Verificar si el enlace ya existe
-    const existingLinkIndex = links.findIndex(
-      link => link.source === sourceNode.id && link.target === targetNode.id
-    );
-
-    const updatedLinks = [...links];
-
-    if (existingLinkIndex !== -1) {
-      // Eliminar enlace existente
-      updatedLinks.splice(existingLinkIndex, 1);
-      showToast.info(`Link removed between ${sourceNode.name} and ${targetNode.name}`);
-    } else {
-      // Agregar nuevo enlace
-      updatedLinks.push({
-        source: sourceNode.id,
-        target: targetNode.id
-      });
-      showToast.success(`Link added between ${sourceNode.name} and ${targetNode.name}`);
-    }
-
-    setLinks(updatedLinks);
-  };
-
-  // Agregar nuevo nodo
   const handleAddNode = () => {
     if (!newNodeName.trim()) {
       showToast.error('Node name cannot be empty');
@@ -111,7 +129,7 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       name: newNodeName.trim(),
       x: DEFAULT_CONFIG.width / 2,
       y: DEFAULT_CONFIG.height / 2,
-      type: 'workstation'
+      type: newNodeType
     };
 
     const updatedNodes = [...nodes, newNode];
@@ -143,54 +161,36 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
         </Button>
       </div>
 
-      {viewMode === 'matrix' && (
-        <div className="space-y-4">
-          <div className="flex space-x-2 mb-4">
+      {viewMode === 'graph' && (
+        <div className="w-full border rounded">
+          <div className="flex space-x-2 p-2">
             <Input 
               placeholder="Enter new node name" 
               value={newNodeName}
               onChange={(e) => setNewNodeName(e.target.value)}
               className="flex-grow"
             />
+            <Select 
+              value={newNodeType} 
+              onValueChange={setNewNodeType}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Node Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="server">Server</SelectItem>
+                <SelectItem value="workstation">Workstation</SelectItem>
+                <SelectItem value="router">Router</SelectItem>
+              </SelectContent>
+            </Select>
             <Button onClick={handleAddNode}>Add Node</Button>
           </div>
-          
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[100px]">Nodes</TableHead>
-                  {generateAdjacencyMatrix().nodeNames.map((name, index) => (
-                    <TableHead key={index} className="text-center">{name}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {generateAdjacencyMatrix().matrix.map((row, rowIndex) => (
-                  <TableRow key={rowIndex}>
-                    <TableCell className="font-medium">
-                      {generateAdjacencyMatrix().nodeNames[rowIndex]}
-                    </TableCell>
-                    {row.map((value, colIndex) => (
-                      <TableCell 
-                        key={colIndex} 
-                        onClick={() => handleMatrixCellClick(rowIndex, colIndex)}
-                        className={`
-                          text-center 
-                          cursor-pointer 
-                          ${value === 1 ? 'bg-green-100' : 'bg-gray-100'}
-                          hover:bg-blue-100
-                          ${rowIndex === colIndex ? 'bg-gray-200 cursor-not-allowed' : ''}
-                        `}
-                      >
-                        {value}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <svg 
+            ref={svgRef}
+            width="100%" 
+            height={DEFAULT_CONFIG.height}
+            viewBox={`0 0 ${DEFAULT_CONFIG.width} ${DEFAULT_CONFIG.height}`}
+          />
         </div>
       )}
     </div>
