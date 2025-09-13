@@ -7,6 +7,8 @@ export interface Node {
   group?: string;
   influence?: number;
   dependence?: number;
+  fx?: number | null; // Added for D3 fixed position
+  fy?: number | null; // Added for D3 fixed position
 }
 
 export interface Link {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { showToast } from "@/utils/toast";
 import { Node, Link, NetworkSimulationConfig, NetworkGraphProps, AdjacencyMatrix, NodeGroup } from '@/types/network';
 import { Pencil, Check, X, PlusCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from '@/lib/utils';
 
 const GROUP_COLORS = {
   server: '#36A2EB',
@@ -50,62 +51,83 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     { source: '3', target: '4' },
     { source: '3', target: '5' }
   ]);
-  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('graph');
+  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('matrix'); // Set matrix as default
   const [newNodeName, setNewNodeName] = useState<string>('');
   const [newNodeType, setNewNodeType] = useState<string>('workstation');
+  const [editingMatrixCell, setEditingMatrixCell] = useState<{ row: string; col: string } | null>(null);
+
+  const calculateAdjacencyMatrix = useCallback((): AdjacencyMatrix => {
+    const nodeIds = nodes.map(node => node.id);
+    const matrix: number[][] = Array(nodeIds.length).fill(0).map(() => Array(nodeIds.length).fill(0));
+
+    links.forEach(link => {
+      const sourceIndex = nodeIds.indexOf(link.source);
+      const targetIndex = nodeIds.indexOf(link.target);
+      if (sourceIndex !== -1 && targetIndex !== -1) {
+        matrix[sourceIndex][targetIndex] = 1;
+        matrix[targetIndex][sourceIndex] = 1; // Assuming undirected graph for simplicity
+      }
+    });
+
+    return { matrix, nodeNames: nodes.map(node => node.name) };
+  }, [nodes, links]);
+
+  const adjacencyMatrix = calculateAdjacencyMatrix();
 
   useEffect(() => {
-    if (!svgRef.current) return;
+    if (viewMode !== 'graph' || !svgRef.current) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove(); // Clear previous rendering
 
-    // Create a simulation to position nodes
-    const simulation = d3.forceSimulation(nodes as any)
-      .force("link", d3.forceLink(links).id((d: any) => d.id))
-      .force("charge", d3.forceManyBody().strength(-300))
-      .force("center", d3.forceCenter(DEFAULT_CONFIG.width / 2, DEFAULT_CONFIG.height / 2));
+    // Cast nodes to D3's SimulationNodeDatum type, which now includes fx/fy
+    const simulation = d3.forceSimulation<Node, Link>(nodes)
+      .force("link", d3.forceLink<Node, Link>(links).id((d: Node) => d.id).distance(100))
+      .force("charge", d3.forceManyBody<Node>().strength(-300))
+      .force("center", d3.forceCenter<Node>(DEFAULT_CONFIG.width / 2, DEFAULT_CONFIG.height / 2));
 
-    // Draw links
     const linkElements = svg.append("g")
-      .selectAll("line")
-      .data(links)
-      .enter()
-      .append("line")
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
+      .selectAll("line")
+      .data(links)
+      .join("line")
       .attr("stroke-width", 2);
 
-    // Draw nodes
     const nodeElements = svg.append("g")
       .selectAll("g")
       .data(nodes)
-      .enter()
-      .append("g")
+      .join("g")
       .call(d3.drag<SVGGElement, Node>()
+        .on("start", (event) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          event.subject.fx = event.subject.x;
+          event.subject.fy = event.subject.y;
+        })
         .on("drag", (event, d) => {
-          d.x = event.x;
-          d.y = event.y;
-          simulation.restart();
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
         })
       );
 
-    // Node circles
     nodeElements.append("circle")
       .attr("r", DEFAULT_CONFIG.nodeRadius)
-      .attr("fill", (d: any) => GROUP_COLORS[d.type as keyof typeof GROUP_COLORS] || '#666')
+      .attr("fill", (d: Node) => GROUP_COLORS[d.type as keyof typeof GROUP_COLORS] || '#666')
       .attr("stroke", "#333")
       .attr("stroke-width", 2);
 
-    // Node labels
     nodeElements.append("text")
       .attr("text-anchor", "middle")
       .attr("dy", ".35em")
       .attr("fill", "white")
       .attr("font-weight", "bold")
-      .text((d: any) => d.name);
+      .text((d: Node) => d.name);
 
-    // Update positions on each tick of the simulation
     simulation.on("tick", () => {
       linkElements
         .attr("x1", (d: any) => d.source.x)
@@ -116,26 +138,66 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       nodeElements
         .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
-  }, [nodes, links]);
+
+    // Cleanup function to stop simulation on unmount or view change
+    return () => simulation.stop();
+  }, [nodes, links, viewMode]); // Re-run effect if nodes, links, or viewMode changes
 
   const handleAddNode = () => {
     if (!newNodeName.trim()) {
       showToast.error('Node name cannot be empty');
       return;
     }
+    if (nodes.some(node => node.name === newNodeName.trim())) {
+      showToast.error(`Node with name "${newNodeName.trim()}" already exists.`);
+      return;
+    }
 
     const newNode: Node = {
       id: `node-${nodes.length + 1}`,
       name: newNodeName.trim(),
-      x: DEFAULT_CONFIG.width / 2,
-      y: DEFAULT_CONFIG.height / 2,
+      x: DEFAULT_CONFIG.width / 2 + Math.random() * 50 - 25, // Slight offset for new nodes
+      y: DEFAULT_CONFIG.height / 2 + Math.random() * 50 - 25,
       type: newNodeType
     };
 
-    const updatedNodes = [...nodes, newNode];
-    setNodes(updatedNodes);
+    setNodes(prevNodes => [...prevNodes, newNode]);
     setNewNodeName('');
     showToast.success(`New node added: ${newNode.name}`);
+  };
+
+  const handleMatrixCellClick = (rowIndex: number, colIndex: number) => {
+    const rowNodeId = nodes[rowIndex].id;
+    const colNodeId = nodes[colIndex].id;
+
+    if (rowNodeId === colNodeId) return; // Cannot link a node to itself
+
+    setEditingMatrixCell({ row: rowNodeId, col: colNodeId });
+  };
+
+  const handleMatrixCellToggle = (rowIndex: number, colIndex: number) => {
+    const rowNodeId = nodes[rowIndex].id;
+    const colNodeId = nodes[colIndex].id;
+
+    if (rowNodeId === colNodeId) return;
+
+    const isLinked = adjacencyMatrix.matrix[rowIndex][colIndex] === 1;
+    let updatedLinks: Link[];
+
+    if (isLinked) {
+      // Remove link
+      updatedLinks = links.filter(
+        link => !((link.source === rowNodeId && link.target === colNodeId) ||
+                   (link.source === colNodeId && link.target === rowNodeId))
+      );
+      showToast.info(`Link removed between ${nodes[rowIndex].name} and ${nodes[colIndex].name}`);
+    } else {
+      // Add link
+      updatedLinks = [...links, { source: rowNodeId, target: colNodeId }];
+      showToast.success(`Link added between ${nodes[rowIndex].name} and ${nodes[colIndex].name}`);
+    }
+    setLinks(updatedLinks);
+    setEditingMatrixCell(null);
   };
 
   return (
@@ -162,13 +224,13 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       </div>
 
       {viewMode === 'graph' && (
-        <div className="w-full border rounded">
-          <div className="flex space-x-2 p-2">
+        <div className="w-full border rounded bg-white dark:bg-gray-800 shadow-md">
+          <div className="flex flex-wrap items-center space-x-2 p-2 border-b dark:border-gray-700">
             <Input 
               placeholder="Enter new node name" 
               value={newNodeName}
               onChange={(e) => setNewNodeName(e.target.value)}
-              className="flex-grow"
+              className="flex-grow max-w-xs"
             />
             <Select 
               value={newNodeType} 
@@ -183,14 +245,72 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
                 <SelectItem value="router">Router</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={handleAddNode}>Add Node</Button>
+            <Button onClick={handleAddNode} className="flex items-center space-x-1">
+              <PlusCircle className="h-4 w-4" />
+              <span>Add Node</span>
+            </Button>
           </div>
           <svg 
             ref={svgRef}
             width="100%" 
             height={DEFAULT_CONFIG.height}
             viewBox={`0 0 ${DEFAULT_CONFIG.width} ${DEFAULT_CONFIG.height}`}
+            className="bg-gray-50 dark:bg-gray-900"
           />
+        </div>
+      )}
+
+      {viewMode === 'matrix' && (
+        <div className="w-full overflow-x-auto border rounded bg-white dark:bg-gray-800 shadow-md">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 bg-white dark:bg-gray-800 z-10">Nodes</TableHead>
+                {adjacencyMatrix.nodeNames.map((name, index) => (
+                  <TableHead key={index} className="text-center min-w-[80px]">{name}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {nodes.map((rowNode, rowIndex) => (
+                <TableRow key={rowNode.id}>
+                  <TableCell className="sticky left-0 bg-white dark:bg-gray-800 z-10 font-medium">{rowNode.name}</TableCell>
+                  {nodes.map((colNode, colIndex) => (
+                    <TableCell 
+                      key={colNode.id} 
+                      className={cn(
+                        "text-center cursor-pointer",
+                        rowIndex === colIndex ? "bg-gray-200 dark:bg-gray-700" : "",
+                        editingMatrixCell?.row === rowNode.id && editingMatrixCell?.col === colNode.id ? "bg-blue-100 dark:bg-blue-900" : ""
+                      )}
+                      onClick={() => handleMatrixCellClick(rowIndex, colIndex)}
+                    >
+                      {rowIndex === colIndex ? (
+                        <span className="text-gray-500 dark:text-gray-400">-</span>
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          {editingMatrixCell?.row === rowNode.id && editingMatrixCell?.col === colNode.id ? (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleMatrixCellToggle(rowIndex, colIndex)}
+                              className={adjacencyMatrix.matrix[rowIndex][colIndex] === 1 ? "text-red-500 hover:text-red-600" : "text-green-500 hover:text-green-600"}
+                            >
+                              {adjacencyMatrix.matrix[rowIndex][colIndex] === 1 ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                            </Button>
+                          ) : (
+                            <span className={adjacencyMatrix.matrix[rowIndex][colIndex] === 1 ? "text-green-600" : "text-red-600"}>
+                              {adjacencyMatrix.matrix[rowIndex][colIndex]}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
