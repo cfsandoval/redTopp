@@ -1,17 +1,8 @@
 import { toast } from "sonner";
 
-export const showSuccess = (message: string) => {
-  toast.success(message);
-};
-
-export const showError = (message: string) => {
-  toast.error(message);
-};
-
-export const showLoading = (message: string) => {
-  return toast.loading(message);
-};
-
-export const dismissToast = (toastId: string) => {
-  toast.dismiss(toastId);
+export const showToast = {
+  success: (message: string) => toast.success(message),
+  error: (message: string) => toast.error(message),
+  info: (message: string) => toast.info(message),
+  warning: (message: string) => toast.warning(message)
 };
