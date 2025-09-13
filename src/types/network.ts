@@ -14,6 +14,7 @@ export interface Node {
 export interface Link {
   source: string;
   target: string;
+  value?: number;
 }
 
 export interface NetworkSimulationConfig {
