@@ -13,7 +13,7 @@ import { Node, Link, NetworkSimulationConfig, NetworkGraphProps } from '@/types/
 const defaultConfig: NetworkSimulationConfig = {
   width: 800,
   height: 600,
-  nodeRadius: 10
+  nodeRadius: 20
 };
 
 const NetworkGraph: React.FC<NetworkGraphProps> = ({ 
@@ -29,24 +29,30 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     ...config
   };
 
+  // Ensure nodes have x and y coordinates
+  const processedNodes = nodes.map((node, index) => ({
+    ...node,
+    x: node.x ?? (mergedConfig.width / (nodes.length + 1)) * (index + 1),
+    y: node.y ?? (mergedConfig.height / 2)
+  }));
+
   const getNodeColor = (node: Node): string => {
     switch(node.type) {
-      case 'server': return 'blue';
-      case 'workstation': return 'green';
-      case 'router': return 'red';
-      default: return 'gray';
+      case 'server': return 'fill-blue-500';
+      case 'workstation': return 'fill-green-500';
+      case 'router': return 'fill-red-500';
+      default: return 'fill-gray-500';
     }
   };
 
   const handleNodeClick = (node: Node) => {
     console.log('Node clicked:', node);
-    // Add any specific node click logic here
   };
 
   const renderLinks = () => {
     return links.map((link, index) => {
-      const sourceNode = nodes.find(n => n.id === link.source);
-      const targetNode = nodes.find(n => n.id === link.target);
+      const sourceNode = processedNodes.find(n => n.id === link.source);
+      const targetNode = processedNodes.find(n => n.id === link.target);
 
       if (!sourceNode || !targetNode) return null;
 
@@ -65,38 +71,35 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   };
 
   const renderNodes = () => {
-    return nodes.map((node) => (
-      <TooltipProvider key={node.id}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <circle
-              cx={node.x}
-              cy={node.y}
-              r={mergedConfig.nodeRadius}
-              fill={getNodeColor(node)}
-              className="cursor-pointer"
-              onClick={() => handleNodeClick(node)}
-            />
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{node.name}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+    return processedNodes.map((node) => (
+      <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <circle
+                r={mergedConfig.nodeRadius}
+                className={`cursor-pointer ${getNodeColor(node)}`}
+                onClick={() => handleNodeClick(node)}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <div className="flex flex-col">
+                <span className="font-bold">{node.name}</span>
+                <span className="text-sm text-muted-foreground">{node.type || 'Unknown Type'}</span>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <text 
+          x={0} 
+          y={mergedConfig.nodeRadius + 15} 
+          textAnchor="middle" 
+          className="text-xs"
+        >
+          {node.name}
+        </text>
+      </g>
     ));
-  };
-
-  const renderNetworkConfigurations = () => {
-    return (
-      <div className="network-config">
-        <p>Network Configuration</p>
-        <ul>
-          <li>Width: {mergedConfig.width}px</li>
-          <li>Height: {mergedConfig.height}px</li>
-          <li>Node Radius: {mergedConfig.nodeRadius}px</li>
-        </ul>
-      </div>
-    );
   };
 
   return (
@@ -105,12 +108,12 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
         ref={svgRef}
         width="100%" 
         height={mergedConfig.height}
+        viewBox={`0 0 ${mergedConfig.width} ${mergedConfig.height}`}
         className="border rounded"
       >
         {renderLinks()}
         {renderNodes()}
       </svg>
-      {renderNetworkConfigurations()}
     </div>
   );
 };

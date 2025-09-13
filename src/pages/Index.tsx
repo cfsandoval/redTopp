@@ -6,20 +6,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Node, Link, NetworkSimulationConfig } from "@/types/network";
 
 const sampleNodes: Node[] = [
-  { id: '1', name: 'Server 1', x: 100, y: 100, type: 'server' },
-  { id: '2', name: 'Workstation 1', x: 200, y: 200, type: 'workstation' },
-  { id: '3', name: 'Router 1', x: 300, y: 150, type: 'router' }
+  { id: '1', name: 'Web Server', x: 200, y: 150, type: 'server' },
+  { id: '2', name: 'Database Server', x: 400, y: 250, type: 'server' },
+  { id: '3', name: 'Router', x: 600, y: 200, type: 'router' },
+  { id: '4', name: 'Workstation 1', x: 300, y: 350, type: 'workstation' },
+  { id: '5', name: 'Workstation 2', x: 500, y: 100, type: 'workstation' }
 ];
 
 const sampleLinks: Link[] = [
   { source: '1', target: '2' },
-  { source: '2', target: '3' }
+  { source: '2', target: '3' },
+  { source: '4', target: '1' },
+  { source: '5', target: '3' }
 ];
 
 const sampleConfig: NetworkSimulationConfig = {
   width: 800,
-  height: 400,
-  nodeRadius: 15
+  height: 500,
+  nodeRadius: 25
 };
 
 const Index = () => {
