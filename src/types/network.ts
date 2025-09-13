@@ -1,8 +1,8 @@
 export interface Node {
   id: string;
   name: string;
-  x?: number;
-  y?: number;
+  x: number;
+  y: number;
   type?: string;
 }
 
@@ -12,13 +12,13 @@ export interface Link {
 }
 
 export interface NetworkSimulationConfig {
-  width?: number;
-  height?: number;
-  nodeRadius?: number;
+  width: number;
+  height: number;
+  nodeRadius: number;
 }
 
 export interface NetworkGraphProps {
-  nodes: Node[];
-  links: Link[];
-  config: NetworkSimulationConfig;
+  nodes?: Node[];
+  links?: Link[];
+  config?: NetworkSimulationConfig;
 }
