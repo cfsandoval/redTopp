@@ -22,3 +22,9 @@ export interface NetworkGraphProps {
   links?: Link[];
   config?: NetworkSimulationConfig;
 }
+
+// New interface for adjacency matrix
+export interface AdjacencyMatrix {
+  matrix: number[][];
+  nodeNames: string[];
+}
