@@ -9,7 +9,10 @@ export default defineConfig(() => ({
     port: 5000,
     allowedHosts: true as const,
   },
-  plugins: [dyadComponentTagger(), react()],
+  plugins: [
+    ...(process.env.NODE_ENV === 'development' ? [dyadComponentTagger()] : []),
+    react()
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
