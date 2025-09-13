@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import * as d3 from 'd3';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,15 +16,6 @@ import { showToast } from "@/utils/toast";
 import { Node, Link, NetworkSimulationConfig, NetworkGraphProps, AdjacencyMatrix, NodeGroup } from '@/types/network';
 import { Pencil, Check, X, PlusCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-const GROUP_COLORS = [
-  '#FF6384', // Pink
-  '#36A2EB', // Blue
-  '#FFCE56', // Yellow
-  '#4BC0C0', // Teal
-  '#9966FF', // Purple
-  '#FF9F40'  // Orange
-];
 
 const DEFAULT_CONFIG: NetworkSimulationConfig = {
   width: 800,
@@ -52,15 +43,63 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     { source: '3', target: '4' },
     { source: '3', target: '5' }
   ]);
-  const [groups, setGroups] = useState<NodeGroup[]>([
-    { id: 'server', name: 'Servers', color: '#36A2EB' },
-    { id: 'workstation', name: 'Clients', color: '#FF6384' },
-    { id: 'router', name: 'Network', color: '#4BC0C0' }
-  ]);
+  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('matrix');
   const [newNodeName, setNewNodeName] = useState<string>('');
-  const [newNodeType, setNewNodeType] = useState<string>('workstation');
-  const [viewMode, setViewMode] = useState<'graph' | 'matrix' | 'groups'>('graph');
 
+  // Generar Matriz de Adyacencia
+  const generateAdjacencyMatrix = (): AdjacencyMatrix => {
+    const nodeNames = nodes.map(node => node.name);
+    const matrix = Array(nodes.length).fill(null).map(() => 
+      Array(nodes.length).fill(0)
+    );
+
+    links.forEach(link => {
+      const sourceIndex = nodes.findIndex(node => node.id === link.source);
+      const targetIndex = nodes.findIndex(node => node.id === link.target);
+      
+      if (sourceIndex !== -1 && targetIndex !== -1) {
+        matrix[sourceIndex][targetIndex] = 1;
+      }
+    });
+
+    return { matrix, nodeNames };
+  };
+
+  // Manejar clic en celda de matriz
+  const handleMatrixCellClick = (rowIndex: number, colIndex: number) => {
+    // Evitar autoenlace
+    if (rowIndex === colIndex) {
+      showToast.error('Cannot create self-link');
+      return;
+    }
+
+    const sourceNode = nodes[rowIndex];
+    const targetNode = nodes[colIndex];
+
+    // Verificar si el enlace ya existe
+    const existingLinkIndex = links.findIndex(
+      link => link.source === sourceNode.id && link.target === targetNode.id
+    );
+
+    const updatedLinks = [...links];
+
+    if (existingLinkIndex !== -1) {
+      // Eliminar enlace existente
+      updatedLinks.splice(existingLinkIndex, 1);
+      showToast.info(`Link removed between ${sourceNode.name} and ${targetNode.name}`);
+    } else {
+      // Agregar nuevo enlace
+      updatedLinks.push({
+        source: sourceNode.id,
+        target: targetNode.id
+      });
+      showToast.success(`Link added between ${sourceNode.name} and ${targetNode.name}`);
+    }
+
+    setLinks(updatedLinks);
+  };
+
+  // Agregar nuevo nodo
   const handleAddNode = () => {
     if (!newNodeName.trim()) {
       showToast.error('Node name cannot be empty');
@@ -72,64 +111,13 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       name: newNodeName.trim(),
       x: DEFAULT_CONFIG.width / 2,
       y: DEFAULT_CONFIG.height / 2,
-      type: newNodeType
+      type: 'workstation'
     };
 
     const updatedNodes = [...nodes, newNode];
     setNodes(updatedNodes);
     setNewNodeName('');
     showToast.success(`New node added: ${newNode.name}`);
-  };
-
-  const renderLinks = () => {
-    return links.map((link, index) => {
-      const sourceNode = nodes.find(n => n.id === link.source);
-      const targetNode = nodes.find(n => n.id === link.target);
-
-      if (!sourceNode || !targetNode) return null;
-
-      return (
-        <line 
-          key={`link-${index}`}
-          x1={sourceNode.x}
-          y1={sourceNode.y}
-          x2={targetNode.x}
-          y2={targetNode.y}
-          stroke="#999"
-          strokeWidth={3}
-          strokeOpacity={0.6}
-        />
-      );
-    }).filter(Boolean);
-  };
-
-  const renderNodes = () => {
-    return nodes.map((node) => {
-      const group = groups.find(g => g.id === node.type);
-      const fillColor = group ? group.color : '#36A2EB';
-
-      return (
-        <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
-          <circle
-            r={DEFAULT_CONFIG.nodeRadius}
-            fill={fillColor}
-            fillOpacity={0.8}
-            stroke="#333"
-            strokeWidth={2}
-            className="cursor-pointer"
-          />
-          <text 
-            x={0} 
-            y={0} 
-            textAnchor="middle" 
-            alignmentBaseline="middle"
-            className="text-sm font-bold fill-white pointer-events-none"
-          >
-            {node.name}
-          </text>
-        </g>
-      );
-    });
   };
 
   return (
@@ -155,58 +143,53 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
         </Button>
       </div>
 
-      {viewMode === 'graph' && (
-        <div className="w-full border rounded">
-          <svg 
-            width="100%" 
-            height={DEFAULT_CONFIG.height}
-            viewBox={`0 0 ${DEFAULT_CONFIG.width} ${DEFAULT_CONFIG.height}`}
-          >
-            {renderLinks()}
-            {renderNodes()}
-          </svg>
-        </div>
-      )}
-
-      {viewMode === 'groups' && (
+      {viewMode === 'matrix' && (
         <div className="space-y-4">
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 mb-4">
             <Input 
               placeholder="Enter new node name" 
               value={newNodeName}
               onChange={(e) => setNewNodeName(e.target.value)}
+              className="flex-grow"
             />
-            <Select 
-              value={newNodeType} 
-              onValueChange={setNewNodeType}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Node Type" />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map(group => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Button onClick={handleAddNode}>Add Node</Button>
           </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            {groups.map(group => (
-              <div 
-                key={group.id} 
-                className="border rounded p-2 flex items-center space-x-2"
-              >
-                <div 
-                  className="w-6 h-6 rounded-full" 
-                  style={{backgroundColor: group.color}}
-                />
-                <span>{group.name}</span>
-              </div>
-            ))}
+          
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px]">Nodes</TableHead>
+                  {generateAdjacencyMatrix().nodeNames.map((name, index) => (
+                    <TableHead key={index} className="text-center">{name}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {generateAdjacencyMatrix().matrix.map((row, rowIndex) => (
+                  <TableRow key={rowIndex}>
+                    <TableCell className="font-medium">
+                      {generateAdjacencyMatrix().nodeNames[rowIndex]}
+                    </TableCell>
+                    {row.map((value, colIndex) => (
+                      <TableCell 
+                        key={colIndex} 
+                        onClick={() => handleMatrixCellClick(rowIndex, colIndex)}
+                        className={`
+                          text-center 
+                          cursor-pointer 
+                          ${value === 1 ? 'bg-green-100' : 'bg-gray-100'}
+                          hover:bg-blue-100
+                          ${rowIndex === colIndex ? 'bg-gray-200 cursor-not-allowed' : ''}
+                        `}
+                      >
+                        {value}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}
