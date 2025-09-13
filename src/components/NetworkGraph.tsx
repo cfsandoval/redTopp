@@ -1,15 +1,8 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as d3 from 'd3';
-import { 
-  Tooltip, 
-  TooltipContent, 
-  TooltipProvider, 
-  TooltipTrigger 
-} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { 
   Table, 
@@ -19,9 +12,9 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { showToast } from "@/utils/toast";
 import { Node, Link, NetworkSimulationConfig, NetworkGraphProps, AdjacencyMatrix } from '@/types/network';
+import { Pencil, Check, X } from 'lucide-react';
 
 const defaultConfig: NetworkSimulationConfig = {
   width: 800,
@@ -40,9 +33,9 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   const [adjacencyMatrix, setAdjacencyMatrix] = useState<AdjacencyMatrix>(() => 
     generateAdjacencyMatrix()
   );
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingNode, setEditingNode] = useState<Node | null>(null);
   const [newNodeName, setNewNodeName] = useState<string>('');
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editNodeName, setEditNodeName] = useState<string>('');
 
   // Regenerate adjacency matrix when nodes or links change
   useEffect(() => {
@@ -90,11 +83,46 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     showToast.success(`New node added: ${newNode.name}`);
   };
 
+  // Edit Node Name Handler
+  const startEditingNode = (node: Node) => {
+    setEditingNodeId(node.id);
+    setEditNodeName(node.name);
+  };
+
+  // Save Node Name
+  const saveNodeName = () => {
+    if (!editNodeName.trim()) {
+      showToast.error('Node name cannot be empty');
+      return;
+    }
+
+    const updatedNodes = nodes.map(node => 
+      node.id === editingNodeId 
+        ? { ...node, name: editNodeName.trim() } 
+        : node
+    );
+
+    setNodes(updatedNodes);
+    setEditingNodeId(null);
+    showToast.success('Node name updated successfully');
+  };
+
+  // Cancel Node Name Editing
+  const cancelEditNodeName = () => {
+    setEditingNodeId(null);
+  };
+
   // Edit Matrix Cell (Add/Remove Connection)
   const handleMatrixCellClick = (rowIndex: number, colIndex: number) => {
     const updatedLinks = [...links];
     const sourceNode = nodes[rowIndex];
     const targetNode = nodes[colIndex];
+
+    // Prevent self-linking
+    if (sourceNode.id === targetNode.id) {
+      showToast.error('Cannot create self-link');
+      return;
+    }
 
     // Check if link already exists
     const existingLinkIndex = links.findIndex(
@@ -156,7 +184,42 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
             <TableBody>
               {adjacencyMatrix.matrix.map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
-                  <TableCell>{adjacencyMatrix.nodeNames[rowIndex]}</TableCell>
+                  <TableCell className="flex items-center space-x-2">
+                    {editingNodeId === nodes[rowIndex].id ? (
+                      <>
+                        <Input 
+                          value={editNodeName}
+                          onChange={(e) => setEditNodeName(e.target.value)}
+                          className="w-full"
+                        />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={saveNodeName}
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={cancelEditNodeName}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span>{adjacencyMatrix.nodeNames[rowIndex]}</span>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => startEditingNode(nodes[rowIndex])}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </TableCell>
                   {row.map((value, colIndex) => (
                     <TableCell 
                       key={colIndex} 
@@ -177,8 +240,6 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
           </Table>
         </div>
       )}
-
-      {/* Resto del código anterior se mantiene igual */}
     </div>
   );
 };
